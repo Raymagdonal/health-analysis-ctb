@@ -8,7 +8,8 @@ import { ComparisonReportModal } from './components/ComparisonReportModal';
 import { RankingModal } from './components/RankingModal';
 import { 
   Plus, Save, ArrowUpDown, Search, ChevronLeft, ChevronRight, 
-  Users, Trophy, UserCheck, Eye, EyeOff, Star, Table as TableIcon, Calendar, Lock, Unlock 
+  Users, Trophy, Eye, EyeOff, Star, Table as TableIcon, Calendar, Lock, Unlock,
+  UploadCloud, DownloadCloud, FileUp
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 20;
@@ -39,14 +40,11 @@ const getSuccessScore = (user: UserData): number => {
 
 const App: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState('2568');
-  
-  // สถานะการล็อคข้อมูล
   const [isLocked, setIsLocked] = useState(() => {
     const saved = localStorage.getItem(LOCK_STORAGE_KEY);
     return saved === null ? true : saved === 'true';
   });
   
-  // ข้อมูลทั้งหมด
   const [allYearsData, setAllYearsData] = useState<Record<string, UserData[]>>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
@@ -62,8 +60,6 @@ const App: React.FC = () => {
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [isComparisonReportOpen, setIsComparisonReportOpen] = useState(false);
   const [rankingMetric, setRankingMetric] = useState<MetricConfig | null>(null);
-  
-  // --- จุดที่แก้ไข: เริ่มต้นด้วยการซ่อนตารางเสมอ ---
   const [isTableVisible, setIsTableVisible] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -123,7 +119,7 @@ const App: React.FC = () => {
     };
     updateCurrentYearData(prev => [newUser, ...prev]);
     setCurrentPage(1);
-    setIsTableVisible(true); // เมื่อกดเพิ่มให้แสดงตารางอัตโนมัติเพื่อให้เห็นข้อมูลใหม่
+    setIsTableVisible(true);
   };
 
   const handleSortByProgress = () => {
@@ -133,14 +129,60 @@ const App: React.FC = () => {
   };
 
   const handleExport = () => {
-    const exportObject = { year: selectedYear, monthFrom: month1, monthTo: month2, employees: data };
+    const exportObject = { 
+      year: selectedYear, 
+      monthFrom: month1, 
+      monthTo: month2, 
+      employees: data,
+      exportDate: new Date().toISOString()
+    };
     const blob = new Blob([JSON.stringify(exportObject, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.download = `health_data_${selectedYear}.json`;
+    link.download = `backup_health_data_${selectedYear}_${new Date().toLocaleDateString('th-TH').replace(/\//g, '-')}.json`;
     link.href = url;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    if (isLocked) {
+      alert("กรุณาปลดล็อคระบบ (Unlock) ก่อนนำเข้าข้อมูล");
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = JSON.parse(e.target?.result as string);
+        if (json.employees && Array.isArray(json.employees)) {
+          const importYear = json.year || selectedYear;
+          if (window.confirm(`พบข้อมูลของปี ${importYear} จำนวน ${json.employees.length} รายการ คุณต้องการเขียนทับข้อมูลปัจจุบันหรือไม่?`)) {
+            setAllYearsData(prev => ({
+              ...prev,
+              [importYear]: json.employees
+            }));
+            setSelectedYear(importYear);
+            if (json.monthFrom) setMonth1(json.monthFrom);
+            if (json.monthTo) setMonth2(json.monthTo);
+            setIsTableVisible(true);
+            alert("นำเข้าข้อมูลสำเร็จ");
+          }
+        } else {
+          alert("รูปแบบไฟล์ไม่ถูกต้อง กรุณาใช้ไฟล์ที่ Export จากระบบนี้เท่านั้น");
+        }
+      } catch (error) {
+        alert("เกิดข้อผิดพลาดในการอ่านไฟล์");
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = ''; // Reset input
   };
 
   const getRankColorClass = (key: MetricKey | 'overall') => {
@@ -158,6 +200,8 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#fcfaf8] p-4 md:p-8 text-slate-800 font-sans">
+      <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".json" className="hidden" />
+      
       <div className="max-w-[1920px] mx-auto space-y-6">
         <header className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
           <div className="flex items-center gap-4">
@@ -194,12 +238,18 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex gap-2">
-              <button onClick={() => setIsLocked(!isLocked)} className={`p-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 ${isLocked ? 'bg-amber-100 text-amber-600' : 'bg-slate-50 text-slate-400'}`}>
+              <div className="flex bg-slate-50 rounded-xl border border-slate-100 p-0.5">
+                <button onClick={handleImportClick} title="Restore/Import Data" className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-lg transition-all"><UploadCloud size={20} /></button>
+                <div className="w-[1px] bg-slate-200 my-2"></div>
+                <button onClick={handleExport} title="Backup/Export Data" className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-lg transition-all"><DownloadCloud size={20} /></button>
+              </div>
+
+              <button onClick={() => setIsLocked(!isLocked)} className={`p-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2 ${isLocked ? 'bg-amber-100 text-amber-600' : 'bg-white border border-slate-200 text-slate-400'}`}>
                 {isLocked ? <Lock size={20} /> : <Unlock size={20} />}
                 <span className="text-[10px] font-black uppercase hidden md:inline">{isLocked ? 'Locked' : 'Unlock'}</span>
               </button>
-              <button onClick={handleSortByProgress} className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100"><ArrowUpDown size={20} /></button>
-              <button onClick={handleExport} className="p-2.5 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100"><Save size={20} /></button>
+              
+              <button onClick={handleSortByProgress} title="เรียงตามความสำเร็จ" className="p-2.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-xl hover:bg-indigo-100"><ArrowUpDown size={20} /></button>
             </div>
           </div>
         </header>
@@ -275,12 +325,12 @@ const App: React.FC = () => {
                <TableIcon size={32} />
              </div>
              <p className="text-slate-500 font-black uppercase tracking-widest text-xs">ตารางข้อมูลถูกซ่อนอยู่เป็นค่าเริ่มต้น</p>
-             <button 
-              onClick={() => setIsTableVisible(true)}
-              className="mt-4 px-6 py-2 bg-indigo-600 text-white rounded-full font-bold text-sm shadow-lg hover:bg-indigo-700 transition-all"
-             >
-               แสดงตารางข้อมูล
-             </button>
+             <div className="flex gap-3 mt-4">
+                <button onClick={() => setIsTableVisible(true)} className="px-6 py-2 bg-indigo-600 text-white rounded-full font-bold text-sm shadow-lg hover:bg-indigo-700 transition-all">แสดงตารางข้อมูล</button>
+                <button onClick={handleImportClick} className="px-6 py-2 bg-white border border-slate-200 text-slate-600 rounded-full font-bold text-sm shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2">
+                  <FileUp size={16} /> นำเข้า Backup
+                </button>
+             </div>
           </div>
         )}
 
